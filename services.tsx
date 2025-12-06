@@ -778,6 +778,9 @@ export class MaintenanceEngine {
         this.logCallback(`🛡️ PROTECTED: ${protectedElements.size} critical elements`);
 
         let structuralFixesMade = 0;
+        let textChangesMade = 0;
+        let yearUpdatesCount = 0;
+        let fluffRemovalCount = 0;
 
         // 3. 🔥 GOD MODE AUTONOMOUS AGENT - COMPLETE CONTENT RECONSTRUCTION
         this.logCallback(`🔥 ═══════════════════════════════════════════════════════════`);
@@ -794,7 +797,17 @@ export class MaintenanceEngine {
                 [page.title, geoTargeting.enabled ? geoTargeting.location : null],
                 'json'
             );
-            const parsed = JSON.parse(keywordResponse);
+
+            // Strip markdown code blocks if present (```json ... ```)
+            let cleanedResponse = keywordResponse.trim();
+            if (cleanedResponse.startsWith('```')) {
+                // Remove opening ```json or ```
+                cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*\n?/i, '');
+                // Remove closing ```
+                cleanedResponse = cleanedResponse.replace(/\n?```\s*$/i, '');
+            }
+
+            const parsed = JSON.parse(cleanedResponse);
             semanticKeywords = (parsed.semanticKeywords || []).map((k: any) => typeof k === 'object' ? k.keyword : k);
             this.logCallback(`✅ FOUND: ${semanticKeywords.length} semantic keywords`);
         } catch (e: any) {
@@ -872,7 +885,15 @@ export class MaintenanceEngine {
                     [page.title, body.innerHTML.substring(0, 1000), semanticKeywords.length > 0 ? semanticKeywords : [page.title]],
                     'json'
                 );
-                const titleMeta = JSON.parse(titleMetaResponse);
+
+                // Strip markdown code blocks if present
+                let cleanedResponse = titleMetaResponse.trim();
+                if (cleanedResponse.startsWith('```')) {
+                    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*\n?/i, '');
+                    cleanedResponse = cleanedResponse.replace(/\n?```\s*$/i, '');
+                }
+
+                const titleMeta = JSON.parse(cleanedResponse);
 
                 if (titleMeta && titleMeta.title) {
                     (page as any).optimizedTitle = titleMeta.title;
@@ -1066,33 +1087,44 @@ export class MaintenanceEngine {
                             try {
                                 this.logCallback(`🔍 VALIDATING [Attempt ${attempts}/${maxAttempts}]: ${linkDomain}...`);
 
-                                const checkResponse = await fetch(link.link, {
-                                    method: 'HEAD',
-                                    signal: AbortSignal.timeout(8000),
-                                    redirect: 'follow',
-                                    headers: {
-                                        'User-Agent': 'Mozilla/5.0 (compatible; SOTA-Bot/1.0; +reference-validator)'
-                                    }
-                                });
+                                // Try GET request with timeout (HEAD often blocked)
+                                const controller = new AbortController();
+                                const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-                                // STRICT: Only accept 200 status (not 201, not 202, not 301, ONLY 200)
-                                if (checkResponse.status === 200) {
-                                    validatedLinks.push({
-                                        title: link.title || linkDomain,
-                                        url: link.link,
-                                        source: linkDomain
+                                try {
+                                    const checkResponse = await fetchWithProxies(link.link, {
+                                        method: 'GET',
+                                        signal: controller.signal,
+                                        redirect: 'follow',
+                                        headers: {
+                                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                                        }
                                     });
-                                    this.logCallback(`✅ VALID (200 OK) [${validatedLinks.length}/10]: ${linkDomain}`);
-                                    validationPassed = true;
-                                } else {
-                                    this.logCallback(`❌ REJECTED [Status: ${checkResponse.status}]: ${linkDomain} - Only 200 accepted`);
-                                    break; // Don't retry for non-200 responses
+
+                                    clearTimeout(timeoutId);
+
+                                    // Accept any 2xx status code (200-299)
+                                    if (checkResponse.status >= 200 && checkResponse.status < 300) {
+                                        validatedLinks.push({
+                                            title: link.title || linkDomain,
+                                            url: link.link,
+                                            source: linkDomain
+                                        });
+                                        this.logCallback(`✅ VALID (${checkResponse.status}) [${validatedLinks.length}/10]: ${linkDomain}`);
+                                        validationPassed = true;
+                                    } else {
+                                        this.logCallback(`❌ REJECTED [Status: ${checkResponse.status}]: ${linkDomain}`);
+                                        break; // Don't retry for non-2xx responses
+                                    }
+                                } catch (fetchErr) {
+                                    clearTimeout(timeoutId);
+                                    throw fetchErr;
                                 }
                             } catch (fetchError: any) {
                                 if (attempts >= maxAttempts) {
-                                    this.logCallback(`❌ FAILED VALIDATION [${attempts}/${maxAttempts}]: ${linkDomain} - ${fetchError.message.substring(0, 40)}`);
+                                    this.logCallback(`❌ FAILED VALIDATION [${attempts}/${maxAttempts}]: ${linkDomain} - ${fetchError.message?.substring(0, 40) || 'Unknown error'}`);
                                 } else {
-                                    this.logCallback(`⚠️ RETRY [${attempts}/${maxAttempts}]: ${linkDomain} - ${fetchError.message.substring(0, 40)}`);
+                                    this.logCallback(`⚠️ RETRY [${attempts}/${maxAttempts}]: ${linkDomain} - ${fetchError.message?.substring(0, 40) || 'Unknown error'}`);
                                     await delay(1000); // Wait before retry
                                 }
                             }
