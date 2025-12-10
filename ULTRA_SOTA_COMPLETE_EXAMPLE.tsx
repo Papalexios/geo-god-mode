@@ -1,366 +1,424 @@
-import { buildUltraSOTAPrompt, buildGodModePrompt } from './prompts-ultra-sota';
+// ULTRA_SOTA_COMPLETE_EXAMPLE.tsx
+// Clean, production-grade ULTRA SOTA orchestration layer
+
 import {
-    performCompetitorGapAnalysis,
-    generateAndValidateReferences,
-    generateReferencesHtml,
-    enhanceSemanticKeywords,
-    extractExistingImages,
-    injectImagesIntoContent,
-    generateOptimalInternalLinks,
-    type CompetitorGap,
-    type ValidatedReference
+  performCompetitorGapAnalysis,
+  generateAndValidateReferences,
+  generateReferencesHtml,
+  enhanceSemanticKeywords,
+  extractExistingImages,
+  injectImagesIntoContent,
+  generateOptimalInternalLinks,
+  type CompetitorGap,
+  type ValidatedReference,
+  type InternalLinkSuggestion,
 } from './ultra-sota-services';
+
 import {
-    validateContentQuality,
-    generateQualityReport,
-    validateAndFix,
-    type QualityCheckResult
+  validateContentQuality,
+  generateQualityReport,
+  validateAndFix,
+  type QualityCheckResult,
 } from './ultra-sota-quality-validator';
 
-export async function generateUltraSOTAContent(
-    keyword: string,
-    existingPages: any[],
-    aiClient: any,
-    model: string,
-    serperApiKey: string,
-    serpData: any[],
-    neuronData: string | null = null,
-    recentNews: string | null = null,
-    onProgress?: (message: string, details?: any) => void,
-    useGodMode: boolean = false,
-    existingContent: string = ''
-): Promise<{
-    content: string;
-    semanticKeywords: string[];
-    gapAnalysis: any;
-    references: ValidatedReference[];
-    qualityReport: QualityCheckResult;
-    metadata: any;
-}> {
-    try {
-        onProgress?.('🚀 Starting ULTRA SOTA content generation...', { step: 1, total: 8 });
+import buildUltraSOTAPrompt, {
+  buildGodModePrompt,
+  type UltraSOTAArticlePlan,
+} from './prompts-ultra-sota';
 
-        onProgress?.('🔍 Step 1/8: Enhancing semantic keywords...', { step: 1, total: 8 });
-        const semanticKeywords = await enhanceSemanticKeywords(
-            keyword,
-            null,
-            aiClient,
-            model
-        );
+import type { SitemapPage } from './types';
 
-        console.log('[ULTRA SOTA] Generated', semanticKeywords.length, 'semantic keywords');
-        onProgress?.(`✅ Generated ${semanticKeywords.length} semantic keywords`, { step: 1, total: 8 });
-
-        onProgress?.('🎯 Step 2/8: Analyzing competitors...', { step: 2, total: 8 });
-        const gapAnalysis = await performCompetitorGapAnalysis(
-            keyword,
-            serpData,
-            aiClient,
-            model
-        );
-
-        console.log('[ULTRA SOTA] Found', gapAnalysis.gaps.length, 'competitor gaps');
-        onProgress?.(`✅ Found ${gapAnalysis.gaps.length} exploitable gaps`, { step: 2, total: 8 });
-
-        onProgress?.('📋 Step 3/8: Building comprehensive article plan...', { step: 3, total: 8 });
-        const allSemanticKeywords = [
-            ...semanticKeywords,
-            ...gapAnalysis.competitorKeywords,
-            ...gapAnalysis.missingKeywords
-        ];
-
-        const articlePlan = {
-            title: keyword,
-            primaryKeyword: keyword,
-            semanticKeywords: allSemanticKeywords,
-            metaDescription: `Comprehensive ${keyword} guide with ${new Date().getFullYear()} data, expert insights, and actionable strategies.`,
-            outline: [
-                { heading: "Introduction", wordCount: 250 },
-                { heading: "Key Takeaways", wordCount: 150 },
-                { heading: `Understanding ${keyword}`, wordCount: 400 },
-                { heading: "Expert Strategies", wordCount: 450 },
-                { heading: "Common Challenges", wordCount: 350 },
-                { heading: "Advanced Techniques", wordCount: 400 },
-                { heading: "Real-World Examples", wordCount: 350 },
-                { heading: "Frequently Asked Questions", wordCount: 300 },
-                { heading: "Conclusion", wordCount: 200 }
-            ],
-            keyTakeaways: [
-                `${keyword} requires strategic planning and execution`,
-                `Data shows ${new Date().getFullYear()} trends favor specific approaches`,
-                "Expert implementation beats generic solutions every time",
-                "Common mistakes can be avoided with proper guidance",
-                "Results improve 3x with systematic application"
-            ],
-            faqSection: [
-                { question: `What is ${keyword}?`, answer: "Brief expert definition" },
-                { question: `How do I get started with ${keyword}?`, answer: "Step-by-step guidance" },
-                { question: `What are the benefits of ${keyword}?`, answer: "Key advantages" },
-                { question: `How long does ${keyword} take?`, answer: "Realistic timeline" },
-                { question: `What tools do I need for ${keyword}?`, answer: "Essential resources" }
-            ]
-        };
-
-        onProgress?.('✅ Article plan created', { step: 3, total: 8 });
-
-        onProgress?.('✍️ Step 4/8: Generating Alex Hormozi style content...', { step: 4, total: 8 });
-
-        let prompt;
-        if (useGodMode) {
-            onProgress?.('🔥 GOD MODE VISUAL SUPERNOVA ACTIVATED', { step: 4, total: 8 });
-            const existingImages = extractExistingImages(existingContent);
-            prompt = buildGodModePrompt(
-                keyword,
-                allSemanticKeywords,
-                gapAnalysis.gaps.map((g: CompetitorGap) => g.opportunity),
-                existingPages,
-                existingImages,
-                neuronData
-            );
-        } else {
-            prompt = buildUltraSOTAPrompt(
-                articlePlan,
-                allSemanticKeywords,
-                gapAnalysis.gaps.map((g: CompetitorGap) => g.opportunity),
-                existingPages,
-                neuronData,
-                recentNews
-            );
-        }
-
-        let generatedContent = '';
-
-        if (model.includes('gemini')) {
-            const result = await aiClient.generateContent({
-                contents: [{ role: 'user', parts: [{ text: prompt.system + '\n\n' + prompt.user }] }],
-            });
-            generatedContent = result.response.text();
-        } else if (model.includes('gpt')) {
-            const completion = await aiClient.chat.completions.create({
-                model: model,
-                messages: [
-                    { role: 'system', content: prompt.system },
-                    { role: 'user', content: prompt.user }
-                ],
-                max_tokens: 4096,
-                temperature: 0.7,
-            });
-            generatedContent = completion.choices[0].message.content || '';
-        } else {
-            const message = await aiClient.messages.create({
-                model: model,
-                max_tokens: 8000,
-                system: prompt.system,
-                messages: [{ role: 'user', content: prompt.user }],
-                temperature: 0.7,
-            });
-            generatedContent = message.content[0].text;
-        }
-
-        generatedContent = generatedContent.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
-
-        console.log('[ULTRA SOTA] Generated', generatedContent.length, 'chars of content');
-        onProgress?.(`✅ Generated ${(generatedContent.length / 1000).toFixed(1)}K chars of content`, { step: 4, total: 8 });
-
-        onProgress?.('🔧 Step 5/8: Auto-fixing common issues...', { step: 5, total: 8 });
-        const { fixed, changes } = validateAndFix(
-            generatedContent,
-            keyword,
-            allSemanticKeywords
-        );
-        generatedContent = fixed;
-
-        if (changes.length > 0) {
-            console.log('[ULTRA SOTA] Applied fixes:', changes);
-            onProgress?.(`✅ Fixed ${changes.length} issues`, { step: 5, total: 8 });
-        } else {
-            onProgress?.('✅ No fixes needed', { step: 5, total: 8 });
-        }
-
-        onProgress?.('📚 Step 6/8: Generating validated references...', { step: 6, total: 8 });
-        const contentSummary = generatedContent.replace(/<[^>]*>/g, ' ').substring(0, 1000);
-        const references = await generateAndValidateReferences(
-            keyword,
-            contentSummary,
-            serperApiKey,
-            aiClient,
-            model,
-            (msg) => onProgress?.(msg, { step: 6, total: 8 })
-        );
-
-        console.log('[ULTRA SOTA] Validated', references.length, 'references');
-        onProgress?.(`✅ Added ${references.length} authoritative references`, { step: 6, total: 8 });
-
-        onProgress?.('🔗 Step 7/8: Injecting references into content...', { step: 7, total: 8 });
-        const referencesHtml = generateReferencesHtml(references);
-        const contentWithReferences = generatedContent + referencesHtml;
-
-        onProgress?.('✓ References injected', { step: 7, total: 8 });
-
-        onProgress?.('✅ Step 8/8: Validating content quality...', { step: 8, total: 8 });
-        const qualityReport = validateContentQuality(
-            contentWithReferences,
-            keyword,
-            allSemanticKeywords,
-            existingPages
-        );
-
-        const reportText = generateQualityReport(qualityReport);
-        console.log('\n' + reportText);
-
-        onProgress?.(`${qualityReport.passed ? '✅' : '⚠️'} Quality Score: ${qualityReport.score}%`, { step: 8, total: 8 });
-
-        onProgress?.('🎉 ULTRA SOTA content generation complete!');
-
-        return {
-            content: contentWithReferences,
-            semanticKeywords: allSemanticKeywords,
-            gapAnalysis,
-            references,
-            qualityReport,
-            metadata: {
-                wordCount: contentWithReferences.replace(/<[^>]*>/g, ' ').split(/\s+/).length,
-                semanticKeywordCount: allSemanticKeywords.length,
-                gapsCovered: gapAnalysis.gaps.length,
-                referencesValidated: references.length,
-                qualityScore: qualityReport.score,
-                aiPhrasesFree: qualityReport.checks.find(c => c.name === 'AI Detection Phrases')?.passed || false
-            }
-        };
-
-    } catch (error) {
-        console.error('[ULTRA SOTA] Error:', error);
-        throw error;
-    }
-}
-
-export async function refreshContentUltraSOTA(
-    existingContent: string,
-    keyword: string,
-    existingPages: any[],
-    aiClient: any,
-    model: string,
-    serperApiKey: string,
-    serpData: any[],
-    onProgress?: (message: string, details?: any) => void
-): Promise<{
-    content: string;
-    preservedImages: number;
-    references: ValidatedReference[];
-    qualityReport: QualityCheckResult;
-}> {
-    try {
-        onProgress?.('🔄 Starting ULTRA SOTA content refresh...', { step: 1, total: 6 });
-
-        onProgress?.('📸 Step 1/6: Extracting existing images...', { step: 1, total: 6 });
-        const existingImages = extractExistingImages(existingContent);
-        console.log('[ULTRA SOTA Refresh] Preserving', existingImages.length, 'images');
-        onProgress?.(`✅ Preserved ${existingImages.length} images`, { step: 1, total: 6 });
-
-        onProgress?.('🔍 Step 2/6: Enhancing semantic keywords...', { step: 2, total: 6 });
-        const semanticKeywords = await enhanceSemanticKeywords(
-            keyword,
-            null,
-            aiClient,
-            model
-        );
-        onProgress?.(`✅ Enhanced with ${semanticKeywords.length} keywords`, { step: 2, total: 6 });
-
-        onProgress?.('🎯 Step 3/6: Analyzing competitors for updates...', { step: 3, total: 6 });
-        const gapAnalysis = await performCompetitorGapAnalysis(
-            keyword,
-            serpData,
-            aiClient,
-            model
-        );
-        onProgress?.(`✅ Found ${gapAnalysis.gaps.length} opportunities`, { step: 3, total: 6 });
-
-        onProgress?.('✍️ Step 4/6: Refreshing content with Alex Hormozi style...', { step: 4, total: 6 });
-
-        const refreshedContent = await generateUltraSOTAContent(
-            keyword,
-            existingPages,
-            aiClient,
-            model,
-            serperApiKey,
-            serpData,
-            null,
-            null,
-            (msg, details) => onProgress?.(msg, { ...details, step: 4, total: 6 })
-        );
-
-        onProgress?.('🖼️ Step 5/6: Reinjecting preserved images...', { step: 5, total: 6 });
-        const contentWithImages = injectImagesIntoContent(
-            refreshedContent.content,
-            existingImages
-        );
-        onProgress?.(`✅ Reinjected ${existingImages.length} images`, { step: 5, total: 6 });
-
-        onProgress?.('✅ Step 6/6: Final quality validation...', { step: 6, total: 6 });
-        const qualityReport = validateContentQuality(
-            contentWithImages,
-            keyword,
-            semanticKeywords,
-            existingPages
-        );
-
-        onProgress?.(`${qualityReport.passed ? '✅' : '⚠️'} Quality Score: ${qualityReport.score}%`, { step: 6, total: 6 });
-
-        onProgress?.('🎉 ULTRA SOTA refresh complete!');
-
-        return {
-            content: contentWithImages,
-            preservedImages: existingImages.length,
-            references: refreshedContent.references,
-            qualityReport
-        };
-
-    } catch (error) {
-        console.error('[ULTRA SOTA Refresh] Error:', error);
-        throw error;
-    }
+export interface UltraSOTAResult {
+  content: string;
+  semanticKeywords: string[];
+  gapAnalysis: {
+    gaps: CompetitorGap[];
+    competitorKeywords: string[];
+    missingKeywords: string[];
+  };
+  references: ValidatedReference[];
+  qualityReport: QualityCheckResult;
+  metadata: {
+    wordCount: number;
+    semanticKeywordCount: number;
+    gapsCovered: number;
+    referencesValidated: number;
+    qualityScore: number;
+    aiPhrasesFree: boolean;
+    internalLinks: InternalLinkSuggestion[];
+  };
 }
 
 export interface UltraSOTAConfig {
-    keyword: string;
-    existingPages: any[];
-    aiClient: any;
-    model: string;
-    serperApiKey: string;
-    serpData: any[];
-    neuronData?: string | null;
-    recentNews?: string | null;
-    mode: 'generate' | 'refresh';
-    existingContent?: string;
-    useGodMode?: boolean; // Enable Visual Supernova styling with Tailwind classes
-    onProgress?: (message: string, details?: any) => void;
+  keyword: string;
+  existingPages: SitemapPage[];
+  aiClient: any;
+  model: string;
+  serperApiKey: string;
+  serpData: any;
+  neuronData?: string | null;
+  recentNews?: string | null;
+  mode: 'generate' | 'refresh';
+  existingContent?: string;
+  useGodMode?: boolean;
+  onProgress?: (message: string, details?: { step: number; total: number }) => void;
 }
 
-export async function executeUltraSOTA(config: UltraSOTAConfig) {
-    if (config.mode === 'refresh' && config.existingContent) {
-        return refreshContentUltraSOTA(
-            config.existingContent,
-            config.keyword,
-            config.existingPages,
-            config.aiClient,
-            config.model,
-            config.serperApiKey,
-            config.serpData,
-            config.onProgress
+/**
+ * Internal: choose the correct AI call pattern for the current provider.
+ */
+async function callModel(
+  aiClient: any,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string> {
+  // Gemini
+  if (model.toLowerCase().includes('gemini')) {
+    const result = await aiClient.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
+      ],
+    });
+    return result.response.text();
+  }
+
+  // OpenAI / OpenRouter / Groq (OpenAI-compatible)
+  if (model.toLowerCase().includes('gpt') || aiClient.chat?.completions) {
+    const completion = await aiClient.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 8000,
+      temperature: 0.5,
+    });
+
+    return completion.choices[0]?.message?.content ?? '';
+  }
+
+  // Anthropic / other chat APIs
+  const message = await aiClient.messages.create({
+    model,
+    max_tokens: 8000,
+    system: systemPrompt,
+    messages: [
+      {
+        role: 'user',
+        content: userPrompt,
+      },
+    ],
+    temperature: 0.5,
+  });
+
+  const firstBlock = message.content?.[0];
+  if (!firstBlock) return '';
+  if (typeof firstBlock === 'string') return firstBlock;
+  // Anthropic-style text blocks
+  // @ts-ignore
+  return firstBlock.text ?? '';
+}
+
+/**
+ * Core ULTRA SOTA generator (new article).
+ */
+export async function generateUltraSOTAContent(
+  keyword: string,
+  existingPages: SitemapPage[],
+  aiClient: any,
+  model: string,
+  serperApiKey: string,
+  serpData: any,
+  neuronData: string | null = null,
+  recentNews: string | null = null,
+  onProgress?: (message: string, details?: { step: number; total: number }) => void,
+  useGodMode: boolean = false,
+  existingContent: string = ''
+): Promise<UltraSOTAResult> {
+  const totalSteps = 8;
+
+  const progress = (message: string, step: number) =>
+    onProgress?.(message, { step, total: totalSteps });
+
+  try {
+    // STEP 1 – semantic keywords
+    progress('Enhancing semantic keyword graph…', 1);
+    const semanticKeywords = await enhanceSemanticKeywords(keyword, neuronData, aiClient, model);
+
+    // STEP 2 – competitor gap analysis
+    progress('Analyzing competitors for exploitable gaps…', 2);
+    const gapAnalysis = await performCompetitorGapAnalysis(
+      keyword,
+      serpData,
+      aiClient,
+      model
+    );
+
+    // STEP 3 – article blueprint
+    progress('Building comprehensive article blueprint…', 3);
+    const allSemanticKeywords = [
+      ...semanticKeywords,
+      ...gapAnalysis.competitorKeywords,
+      ...gapAnalysis.missingKeywords,
+    ];
+
+    const articlePlan: UltraSOTAArticlePlan = {
+      title: keyword,
+      primaryKeyword: keyword,
+      semanticKeywords: allSemanticKeywords,
+      metaDescription: `Complete ${keyword} guide with up-to-date data, expert insights, and practical actions.`,
+      outline: [
+        { heading: 'Introduction', wordCount: 250 },
+        { heading: 'Key Takeaways', wordCount: 150 },
+        { heading: `Understanding ${keyword}`, wordCount: 450 },
+        { heading: 'Actionable Strategies', wordCount: 500 },
+        { heading: 'Common Mistakes to Avoid', wordCount: 350 },
+        { heading: 'Advanced Techniques', wordCount: 450 },
+        { heading: 'Real-World Examples', wordCount: 350 },
+        { heading: 'Frequently Asked Questions', wordCount: 350 },
+        { heading: 'Conclusion', wordCount: 200 },
+      ],
+      keyTakeaways: [
+        `${keyword} requires a structured, data-backed approach to deliver results.`,
+        `Recent trends show that ${new Date().getFullYear()} favors specificity and depth over generic advice.`,
+        `Execution quality beats tools; most wins come from consistent implementation.`,
+        `Common pitfalls around ${keyword} can be avoided with a simple checklist-based workflow.`,
+        `Systematic optimization compounds results and improves margins over time.`,
+      ],
+      faqSection: [
+        { question: `What is ${keyword}?`, answer: `A concise, practical definition focused on outcomes.` },
+        { question: `How do I get started with ${keyword}?`, answer: `A simple, step-by-step starter plan.` },
+        { question: `How long does ${keyword} take to show results?`, answer: `Realistic, evidence-based timelines.` },
+        { question: `What tools are essential for ${keyword}?`, answer: `A short, focused tool stack overview.` },
+      ],
+    };
+
+    // STEP 4 – God Mode vs Standard prompt
+    progress(useGodMode ? 'Generating GOD MODE article…' : 'Generating ULTRA SOTA article…', 4);
+
+    const prompt = useGodMode
+      ? buildGodModePrompt(
+          keyword,
+          allSemanticKeywords,
+          gapAnalysis.gaps.map((g: CompetitorGap) => g.opportunity),
+          existingPages,
+          extractExistingImages(existingContent),
+          neuronData
+        )
+      : buildUltraSOTAPrompt(
+          articlePlan,
+          allSemanticKeywords,
+          gapAnalysis.gaps.map((g: CompetitorGap) => g.opportunity),
+          existingPages,
+          neuronData,
+          recentNews
         );
-    } else {
-        return generateUltraSOTAContent(
-            config.keyword,
-            config.existingPages,
-            config.aiClient,
-            config.model,
-            config.serperApiKey,
-            config.serpData,
-            config.neuronData,
-            config.recentNews,
-            config.onProgress
-        );
-    }
+
+    let rawContent = await callModel(aiClient, model, prompt.system, prompt.user);
+    rawContent = rawContent.trim();
+
+    // STEP 5 – auto-fix common issues and banned phrases
+    progress('Auto-fixing content quality issues…', 5);
+    const { fixed: fixedContent, changes } = validateAndFix(
+      rawContent,
+      keyword,
+      allSemanticKeywords
+    );
+    const baseContent = fixedContent || rawContent;
+
+    // STEP 6 – dynamic, topic-relevant references
+    progress('Generating and validating authoritative references…', 6);
+    const contentSummary = baseContent.replace(/<[^>]+>/g, '').slice(0, 1200);
+    const references = await generateAndValidateReferences(
+      keyword,
+      contentSummary,
+      serperApiKey,
+      aiClient,
+      model,
+      (msg) => onProgress?.(msg)
+    );
+
+    // STEP 7 – internal links + reference injection
+    progress('Injecting internal links and references…', 7);
+    const internalLinks = generateOptimalInternalLinks(baseContent, existingPages, 15);
+    const withLinks = injectInternalLinks(baseContent, internalLinks);
+    const referencesHtml = generateReferencesHtml(references);
+    const contentWithReferences = `${withLinks}\n\n${referencesHtml}`;
+
+    // STEP 8 – final quality validation
+    progress('Running final quality validation…', 8);
+    const qualityReport = validateContentQuality(
+      contentWithReferences,
+      keyword,
+      allSemanticKeywords,
+      existingPages
+    );
+    const _reportText = generateQualityReport(qualityReport);
+
+    const plainTextCount = contentWithReferences.replace(/<[^>]+>/g, ' ').trim();
+    const wordCount = plainTextCount ? plainTextCount.split(/\s+/).length : 0;
+
+    const aiPhraseCheck = qualityReport.checks.find(
+      (c) => c.name === 'AI Detection Phrases'
+    );
+    const aiPhrasesFree = aiPhraseCheck ? aiPhraseCheck.passed : true;
+
+    const result: UltraSOTAResult = {
+      content: contentWithReferences,
+      semanticKeywords: allSemanticKeywords,
+      gapAnalysis,
+      references,
+      qualityReport,
+      metadata: {
+        wordCount,
+        semanticKeywordCount: allSemanticKeywords.length,
+        gapsCovered: gapAnalysis.gaps.length,
+        referencesValidated: references.length,
+        qualityScore: qualityReport.score,
+        aiPhrasesFree,
+        internalLinks,
+      },
+    };
+
+    return result;
+  } catch (error) {
+    console.error('ULTRA SOTA Error', error);
+    throw error;
+  }
+}
+
+/**
+ * Refresh mode: keep images + structure, fully re-optimize content.
+ */
+export async function refreshContentUltraSOTA(
+  existingContent: string,
+  keyword: string,
+  existingPages: SitemapPage[],
+  aiClient: any,
+  model: string,
+  serperApiKey: string,
+  serpData: any,
+  onProgress?: (message: string, details?: { step: number; total: number }) => void
+): Promise<{
+  content: string;
+  preservedImages: number;
+  references: ValidatedReference[];
+  qualityReport: QualityCheckResult;
+}> {
+  const totalSteps = 6;
+  const progress = (message: string, step: number) =>
+    onProgress?.(message, { step, total: totalSteps });
+
+  try {
+    // 1) preserve images
+    progress('Extracting and preserving existing images…', 1);
+    const existingImages = extractExistingImages(existingContent);
+
+    // 2–5) reuse main pipeline with God Mode disabled (to avoid design noise in old posts)
+    progress('Refreshing content with ULTRA SOTA pipeline…', 2);
+    const refreshed = await generateUltraSOTAContent(
+      keyword,
+      existingPages,
+      aiClient,
+      model,
+      serperApiKey,
+      serpData,
+      null,
+      null,
+      (msg, d) => {
+        // remap inner steps into slots 2–5 for UI
+        if (!d) return;
+        const mappedStep = Math.min(5, 1 + d.step);
+        onProgress?.(msg, { step: mappedStep, total: totalSteps });
+      },
+      false,
+      existingContent
+    );
+
+    // 5) re-inject original images back into new body
+    progress('Reinjecting preserved images into refreshed article…', 5);
+    const contentWithImages = injectImagesIntoContent(refreshed.content, existingImages);
+
+    // 6) final validation pass (lightweight)
+    progress('Performing final validation on refreshed article…', 6);
+    const qualityReport = validateContentQuality(
+      contentWithImages,
+      keyword,
+      refreshed.semanticKeywords,
+      existingPages
+    );
+
+    return {
+      content: contentWithImages,
+      preservedImages: existingImages.length,
+      references: refreshed.references,
+      qualityReport,
+    };
+  } catch (error) {
+    console.error('ULTRA SOTA Refresh Error', error);
+    throw error;
+  }
+}
+
+/**
+ * Public entry point used by the rest of the app.
+ */
+export async function executeUltraSOTA(
+  config: UltraSOTAConfig
+): Promise<UltraSOTAResult | {
+  content: string;
+  preservedImages: number;
+  references: ValidatedReference[];
+  qualityReport: QualityCheckResult;
+}> {
+  if (config.mode === 'refresh' && config.existingContent) {
+    return refreshContentUltraSOTA(
+      config.existingContent,
+      config.keyword,
+      config.existingPages,
+      config.aiClient,
+      config.model,
+      config.serperApiKey,
+      config.serpData,
+      config.onProgress
+    );
+  }
+
+  return generateUltraSOTAContent(
+    config.keyword,
+    config.existingPages,
+    config.aiClient,
+    config.model,
+    config.serperApiKey,
+    config.serpData,
+    config.neuronData ?? null,
+    config.recentNews ?? null,
+    config.onProgress,
+    config.useGodMode ?? false,
+    config.existingContent ?? ''
+  );
 }
 
 export default executeUltraSOTA;
+
+/**
+ * Utility: inject already-computed internal links into HTML content.
+ */
+function injectInternalLinks(
+  content: string,
+  links: InternalLinkSuggestion[]
+): string {
+  if (!links.length) return content;
+
+  let updated = content;
+  for (const link of links) {
+    const safeAnchor = link.anchorText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${safeAnchor})`, 'i');
+    updated = updated.replace(
+      regex,
+      `<a href="${link.targetSlug}">$1</a>`
+    );
+  }
+  return updated;
+}
