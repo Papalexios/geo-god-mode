@@ -1078,72 +1078,77 @@ ${finalLinks.map(ref => `  <li><a href="${ref.url}" target="_blank" rel="noopene
     }
 
     private async generateHighQualityReferences(title: string, count: number = 10): Promise<Array<{url: string, title: string, description: string}>> {
-        // Generate topic-relevant, high-authority reference URLs
-        // These are generic but high-quality sources that are unlikely to 404
-        const baseReferences = [
-            {
-                url: 'https://scholar.google.com',
-                title: 'Google Scholar Research Database',
-                description: 'Comprehensive academic research and peer-reviewed studies'
-            },
-            {
-                url: 'https://www.nih.gov',
-                title: 'National Institutes of Health (NIH)',
-                description: 'Official health research and medical information'
-            },
-            {
-                url: 'https://www.ncbi.nlm.nih.gov/pubmed',
-                title: 'PubMed Central',
-                description: 'Free full-text archive of biomedical and life sciences research'
-            },
-            {
-                url: 'https://www.who.int',
-                title: 'World Health Organization (WHO)',
-                description: 'Global health data, guidelines, and recommendations'
-            },
-            {
-                url: 'https://www.cdc.gov',
-                title: 'Centers for Disease Control and Prevention (CDC)',
-                description: 'Public health data, research, and disease prevention guidelines'
-            },
-            {
-                url: 'https://www.nature.com',
-                title: 'Nature Journal',
-                description: 'Leading international scientific journal with peer-reviewed research'
-            },
-            {
-                url: 'https://www.sciencedirect.com',
-                title: 'ScienceDirect',
-                description: 'Database of scientific and technical research publications'
-            },
-            {
-                url: 'https://www.frontiersin.org',
-                title: 'Frontiers',
-                description: 'Open-access scientific publishing platform'
-            },
-            {
-                url: 'https://www.mayoclinic.org',
-                title: 'Mayo Clinic',
-                description: 'Trusted medical information and health resources'
-            },
-            {
-                url: 'https://www.webmd.com',
-                title: 'WebMD',
-                description: 'Medical information and health news'
-            },
-            {
-                url: 'https://www.healthline.com',
-                title: 'Healthline',
-                description: 'Evidence-based health and wellness information'
-            },
-            {
-                url: 'https://www.medicalnewstoday.com',
-                title: 'Medical News Today',
-                description: 'Latest medical research and health news'
-            }
+        const serperApiKey = this.currentContext?.serperApiKey;
+        const wpUrl = this.currentContext?.wpConfig?.url;
+
+        if (!serperApiKey) {
+            this.logCallback(`[REFS] No Serper API key - skipping dynamic references`);
+            return [];
+        }
+
+        const BLOCKED_DOMAINS = [
+            'quora.com', 'reddit.com', 'pinterest.com', 'facebook.com', 'twitter.com',
+            'youtube.com', 'tiktok.com', 'instagram.com', 'linkedin.com', 'medium.com',
+            'scribd.com', 'slideshare.net', 'academia.edu', 'researchgate.net',
+            'amazon.com', 'ebay.com', 'aliexpress.com', 'etsy.com'
         ];
 
-        return baseReferences.slice(0, count);
+        const AUTHORITY_BOOST = ['.gov', '.edu', '.org', 'nature.com', 'sciencedirect.com',
+                                  'springer.com', 'wiley.com', 'pubmed', 'ncbi.nlm.nih.gov'];
+
+        try {
+            const currentYear = new Date().getFullYear();
+            const searchQuery = `${title} guide research statistics data ${currentYear} -site:quora.com -site:reddit.com -site:pinterest.com -site:youtube.com`;
+
+            this.logCallback(`[REFS] Searching: "${title}" for unique references...`);
+
+            const response = await fetchWithProxies("https://google.serper.dev/search", {
+                method: 'POST',
+                headers: { 'X-API-KEY': serperApiKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ q: searchQuery, num: 20 })
+            });
+
+            const data = await response.json();
+            const results = (data.organic || []);
+
+            const validRefs: Array<{url: string, title: string, description: string, score: number}> = [];
+
+            for (const result of results) {
+                try {
+                    const domain = new URL(result.link).hostname.replace('www.', '');
+
+                    if (BLOCKED_DOMAINS.some(blocked => domain.includes(blocked))) continue;
+                    if (wpUrl && domain.includes(new URL(wpUrl).hostname.replace('www.', ''))) continue;
+
+                    let authorityScore = 50;
+                    if (AUTHORITY_BOOST.some(auth => domain.includes(auth))) {
+                        authorityScore = 90;
+                    }
+
+                    validRefs.push({
+                        url: result.link,
+                        title: result.title,
+                        description: result.snippet || `Authoritative resource about ${title}`,
+                        score: authorityScore
+                    });
+                } catch {}
+            }
+
+            validRefs.sort((a, b) => b.score - a.score);
+
+            const finalRefs = validRefs.slice(0, count).map(r => ({
+                url: r.url,
+                title: r.title,
+                description: r.description
+            }));
+
+            this.logCallback(`[REFS] Found ${finalRefs.length} unique topic-specific references`);
+            return finalRefs;
+
+        } catch (e: any) {
+            this.logCallback(`[REFS] Error fetching references: ${e.message}`);
+            return [];
+        }
     }
 
     // 🔥 ULTRA GOD MODE: COMPLETE STRUCTURAL SURGEON

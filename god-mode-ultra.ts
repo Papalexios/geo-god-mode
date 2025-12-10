@@ -856,9 +856,12 @@ Use: [IMAGE_1], [IMAGE_2], [IMAGE_3]
 **META DESCRIPTION:** ${articlePlan.metaDescription || ''}
 
 **═══════════════════════════════════════════════════════════════**
-**SEMANTIC KEYWORDS (USE ALL NATURALLY)**
+**SEMANTIC KEYWORDS - MANDATORY (USE EVERY SINGLE ONE)**
 **═══════════════════════════════════════════════════════════════**
 ${semanticKeywords.join(', ')}
+
+**CRITICAL:** You MUST use EVERY keyword above at least ONCE in your content.
+Weave them naturally into sentences. This is non-negotiable for topical authority.
 
 **═══════════════════════════════════════════════════════════════**
 **COMPETITOR GAPS TO EXPLOIT (MANDATORY COVERAGE)**
