@@ -21,6 +21,7 @@ import { getNeuronWriterAnalysis, formatNeuronDataForPrompt } from "./neuronwrit
 import { getGuaranteedYoutubeVideos, enforceWordCount, normalizeGeneratedContent, postProcessGeneratedHtml, performSurgicalUpdate, processInternalLinks, fetchWithProxies, smartCrawl, escapeRegExp } from "./contentUtils";
 import { Buffer } from 'buffer';
 import { generateFullSchema, generateSchemaMarkup } from "./schema-generator";
+import { executeGodModeUltraPipeline, performGodModeUltraAnalysis, generateGodModeUltraContent, GodModeUltraEngine, GOD_MODE_ULTRA_PROMPTS } from './god-mode-ultra-services';
 
 class SotaAIError extends Error {
     constructor(
@@ -2112,5 +2113,63 @@ export const generateContent = {
                 dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'error', statusText: error.message } });
             }
         }, 1, (c, t) => onProgress({ current: c, total: t }), () => shouldStop().current.size > 0);
+    },
+
+    generateUltraContent: async (
+        item: ContentItem,
+        context: GenerationContext,
+        generateImage: Function
+    ): Promise<GeneratedContent | null> => {
+        const { dispatch, existingPages, siteInfo, wpConfig, geoTargeting, serperApiKey } = context;
+
+        try {
+            dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'generating', statusText: 'GOD MODE ULTRA: Initiating...' } });
+
+            const ultraContent = await executeGodModeUltraPipeline(
+                item.title,
+                context,
+                dispatch,
+                existingPages
+            );
+
+            if (!ultraContent) {
+                throw new Error('God Mode Ultra pipeline failed to generate content');
+            }
+
+            dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'generating', statusText: 'GOD MODE ULTRA: Generating images...' } });
+
+            const images = await Promise.all(
+                ultraContent.imageDetails.map(detail => generateImage(detail.prompt))
+            );
+            images.forEach((img, i) => {
+                if (img) ultraContent.imageDetails[i].generatedImageSrc = img;
+            });
+
+            dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'generating', statusText: 'GOD MODE ULTRA: Processing internal links...' } });
+            ultraContent.content = processInternalLinks(ultraContent.content, existingPages);
+
+            dispatch({ type: 'SET_CONTENT', payload: { id: item.id, content: ultraContent } });
+            dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'done', statusText: 'GOD MODE ULTRA: Complete' } });
+
+            return ultraContent;
+        } catch (error: any) {
+            dispatch({ type: 'UPDATE_STATUS', payload: { id: item.id, status: 'error', statusText: `GOD MODE ULTRA Error: ${error.message}` } });
+            return null;
+        }
+    },
+
+    analyzeCompetitorGaps: async (
+        keyword: string,
+        context: GenerationContext
+    ): Promise<any> => {
+        const { dispatch, serperApiKey } = context;
+
+        dispatch({ type: 'ADD_SYSTEM_LOG', payload: `[SERP GAP ANALYSIS] Starting competitive analysis for: ${keyword}` });
+
+        const competitorData = await GodModeUltraEngine.fetchCompetitorContent(keyword, serperApiKey);
+
+        dispatch({ type: 'ADD_SYSTEM_LOG', payload: `[SERP GAP ANALYSIS] Found ${competitorData.paaQuestions.length} PAA questions` });
+
+        return competitorData;
     }
 };
